@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
 import { 
   Moon, Brain, TrendingUp, Award, Plus, 
@@ -60,18 +59,26 @@ export default function DashboardPage() {
 
   const checkUser = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      // Verificar se usuário completou onboarding
+      const userData = localStorage.getItem('dreamweaver_user');
       
-      if (!session) {
-        router.push('/login');
+      if (!userData) {
+        router.push('/onboarding');
         return;
       }
 
-      setUser(session.user);
-      await loadDashboardData(session.user.id);
+      const parsedUser = JSON.parse(userData);
+      
+      if (!parsedUser.onboardingCompleted) {
+        router.push('/onboarding');
+        return;
+      }
+
+      setUser(parsedUser);
+      await loadDashboardData(parsedUser.id || 'local-user');
     } catch (error) {
       console.error('Error checking user:', error);
-      router.push('/login');
+      router.push('/onboarding');
     } finally {
       setLoading(false);
     }
@@ -79,39 +86,66 @@ export default function DashboardPage() {
 
   const loadDashboardData = async (userId: string) => {
     try {
-      // Carregar sonhos recentes
-      const { data: dreamsData } = await supabase
-        .from('dreams')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(5);
+      // Carregar dados do localStorage
+      const storedDreams = localStorage.getItem('dreamweaver_dreams');
+      const storedSleep = localStorage.getItem('dreamweaver_sleep');
+      const storedChallenges = localStorage.getItem('dreamweaver_challenges');
 
-      if (dreamsData) setDreams(dreamsData);
+      if (storedDreams) {
+        const dreamsData = JSON.parse(storedDreams);
+        setDreams(dreamsData.slice(0, 5));
+      }
 
-      // Carregar dados de sono
-      const { data: sleepDataResult } = await supabase
-        .from('sleep_analysis')
-        .select('*')
-        .eq('user_id', userId)
-        .order('sleep_date', { ascending: false })
-        .limit(7);
+      if (storedSleep) {
+        const sleepDataResult = JSON.parse(storedSleep);
+        setSleepData(sleepDataResult.slice(0, 7));
+      }
 
-      if (sleepDataResult) setSleepData(sleepDataResult);
-
-      // Carregar desafios ativos
-      const { data: challengesData } = await supabase
-        .from('challenges')
-        .select('*')
-        .eq('active', true)
-        .limit(3);
-
-      if (challengesData) setChallenges(challengesData);
+      if (storedChallenges) {
+        const challengesData = JSON.parse(storedChallenges);
+        setChallenges(challengesData.filter((c: any) => c.active).slice(0, 3));
+      } else {
+        // Desafios padrão se não houver nenhum
+        const defaultChallenges = [
+          {
+            id: '1',
+            title: 'Registre 3 sonhos esta semana',
+            description: 'Mantenha o hábito de registrar seus sonhos regularmente',
+            difficulty: 'easy',
+            points: 50,
+            progress: 0,
+            active: true,
+          },
+          {
+            id: '2',
+            title: 'Durma 8 horas por 5 dias',
+            description: 'Estabeleça uma rotina de sono saudável',
+            difficulty: 'medium',
+            points: 100,
+            progress: 0,
+            active: true,
+          },
+          {
+            id: '3',
+            title: 'Medite antes de dormir',
+            description: 'Pratique meditação por 10 minutos antes de dormir',
+            difficulty: 'medium',
+            points: 75,
+            progress: 0,
+            active: true,
+          },
+        ];
+        setChallenges(defaultChallenges);
+        localStorage.setItem('dreamweaver_challenges', JSON.stringify(defaultChallenges));
+      }
 
       // Calcular estatísticas
-      const totalDreams = dreamsData?.length || 0;
-      const avgQuality = dreamsData?.reduce((acc, d) => acc + (d.sleep_quality || 0), 0) / (totalDreams || 1);
-      const avgDuration = sleepDataResult?.reduce((acc, s) => acc + (s.sleep_duration || 0), 0) / (sleepDataResult?.length || 1);
+      const storedDreamsData = storedDreams ? JSON.parse(storedDreams) : [];
+      const storedSleepData = storedSleep ? JSON.parse(storedSleep) : [];
+      
+      const totalDreams = storedDreamsData.length;
+      const avgQuality = storedDreamsData.reduce((acc: number, d: any) => acc + (d.sleep_quality || 0), 0) / (totalDreams || 1);
+      const avgDuration = storedSleepData.reduce((acc: number, s: any) => acc + (s.sleep_duration || 0), 0) / (storedSleepData.length || 1);
 
       setStats({
         totalDreams,
@@ -145,7 +179,7 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-2xl font-bold text-white">Dashboard</h1>
               <p className="text-slate-400 text-sm mt-1">
-                Bem-vindo de volta, {user?.email?.split('@')[0]}!
+                Bem-vindo de volta, {user?.name || 'Sonhador'}!
               </p>
             </div>
             <Button
